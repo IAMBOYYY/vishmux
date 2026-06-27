@@ -1,0 +1,9 @@
+# Never commit real config with API keys
+cli/config.json
+*.json
+__pycache__/
+*.pyc
+.env
+*.env
+.vishmux/
+vishmux-workspace/
