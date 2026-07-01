@@ -1,4 +1,4 @@
-# config.py
+# cli/config.py
 import json
 from pathlib import Path
 from typing import Optional, Tuple
@@ -27,6 +27,7 @@ class Config:
             "active_provider": "",
             "active_model": "",
             "telegram": {"bot_token": "", "chat_id": "", "enabled": False},
+            "supabase": {"url": "", "key": "", "configured": False},
             "workspace_dir": "~/vishmux-workspace",
             "skills_dir": "~/.vishmux/skills",
             "sessions_dir": "~/.vishmux/sessions",
@@ -69,6 +70,10 @@ class Config:
     def is_setup_done(self) -> bool:
         """True if at least one provider has an API key."""
         return any(p.get("api_key") for p in self.data["providers"].values())
+
+    def is_supabase_configured(self) -> bool:
+        """True if both Supabase URL and key are set."""
+        return bool(self.data["supabase"]["url"] and self.data["supabase"]["key"])
 
     def _update_dict(self, target: dict, source: dict) -> None:
         """Recursively update target with values from source for matching keys."""
