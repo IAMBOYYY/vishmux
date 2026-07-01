@@ -100,6 +100,9 @@ AVAILABLE USER COMMANDS:
 - /skill <url>  → Download and load a skill
 - /web <query>  → Search the web
 - /tg setup     → Configure Telegram
+- /task add <type> "<query>" <HH:MM> → Schedule a recurring task
+- /task list    → Show your scheduled tasks
+- /task remove <id> → Delete a scheduled task
 - exit /s       → Clean exit (delete temp files)
 - exit /ss      → Save exit (keep all files)
 
@@ -263,6 +266,13 @@ GUIDELINES:
             subcmd = parts[1].strip() if len(parts) > 1 else ""
             if self.tool_manager:
                 await self.tool_manager.handle_tg_command(subcmd, self.display)
+            return True
+
+        if cmd_lower.startswith("/task"):
+            parts = cmd.split(maxsplit=1)
+            subcmd = parts[1].strip() if len(parts) > 1 else ""
+            if self.tool_manager:
+                await self.tool_manager.handle_task_command(subcmd, self.display)
             return True
 
         if cmd_lower in ("exit", "quit", "q", "exit /s", "exit /ss"):
