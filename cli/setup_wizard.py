@@ -141,6 +141,55 @@ async def fetch_models(provider_key: str, api_key: str) -> List[str]:
     return models
 
 
+async def setup_supabase(config: Config) -> None:
+    """Optional Supabase setup for scheduled task delivery (/task commands)."""
+    from tools.task_tool import TaskTool
+
+    try:
+        console.print(Panel(
+            "[dim]Supabase powers scheduled tasks — VISHMUX writes tasks to a table, "
+            "and a small server delivers them via Telegram at the right time.[/dim]",
+            title="Supabase Setup (Optional — for scheduled tasks)",
+            border_style="blue"
+        ))
+        if not Confirm.ask("Set up scheduled tasks via Supabase?", default=False):
+            console.print("[dim]Skipped Supabase.[/dim]")
+            return
+
+        console.print("Find these under Project Settings → API in your Supabase dashboard.")
+        url = Prompt.ask("Supabase Project URL").strip()
+        key = Prompt.ask("Supabase anon/public key", password=True).strip()
+        if not url or not key:
+            console.print("[yellow]Skipping Supabase setup (both URL and key are required).[/yellow]")
+            return
+
+        config.data["supabase"]["url"] = url
+        config.data["supabase"]["key"] = key
+        config.data["supabase"]["configured"] = True
+        config.save()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Testing Supabase connection...", total=None)
+            task_tool = TaskTool(config)
+            result = await task_tool.test_connection()
+            progress.update(task, description="")
+            progress.stop()
+
+        if result.startswith("✅"):
+            console.print(f"[green]{result}[/green]")
+        else:
+            console.print(f"[yellow]{result}[/yellow]")
+            console.print("[yellow]Settings were saved anyway — you can fix and retest with /task test.[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Supabase setup error: {e}[/red]")
+        console.print("[dim]Skipping Supabase setup.[/dim]")
+
+
 async def run_setup():
     # Instantiate and load existing config
     config = Config()
@@ -385,6 +434,11 @@ async def run_setup():
         console.print("[dim]Skipped Telegram.[/dim]")
 
     # ========================================================================
+    # STEP 6.5 — Supabase Setup (Scheduled Tasks)
+    # ========================================================================
+    await setup_supabase(config)
+
+    # ========================================================================
     # STEP 7 — Summary Screen
     # ========================================================================
     console.print()
@@ -424,6 +478,12 @@ async def run_setup():
         summary_table.add_row("Telegram", "[green]✓ Connected[/green]")
     else:
         summary_table.add_row("Telegram", "[dim]✗ Not connected[/dim]")
+
+    # Supabase (scheduled tasks)
+    if config.data["supabase"].get("configured"):
+        summary_table.add_row("Scheduled Tasks", "[green]✓ Supabase connected[/green]")
+    else:
+        summary_table.add_row("Scheduled Tasks", "[dim]✗ Not configured[/dim]")
 
     console.print(
         Panel(
