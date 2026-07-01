@@ -113,6 +113,9 @@ class Display:
             ("/web <query>", "Search the web"),
             ("/skill <url>", "Download and load a skill file"),
             ("/tg setup", "Set up or reconnect Telegram"),
+            ("/task add <type> \"<query>\" <HH:MM>", "Schedule a recurring task"),
+            ("/task list", "Show your scheduled tasks"),
+            ("/task remove <id>", "Delete a scheduled task"),
         ]
         for cmd, desc in rows:
             table.add_row(cmd, desc)
