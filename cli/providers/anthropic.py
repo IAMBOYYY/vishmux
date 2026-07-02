@@ -103,3 +103,12 @@ class AnthropicProvider(BaseProvider):
             raise Exception("Rate limit hit. Wait a moment.")
         else:
             raise Exception(f"API error {status}")
+
+    async def chat_with_tools(self, messages: list, tools: list) -> dict:
+        """Tool calling not yet implemented for this provider."""
+        return {
+            "success": False,
+            "error": "Tool use isn't wired up for this provider yet. Switch to Groq, OpenRouter, Nvidia, Together, or Mistral to use agent tools (switch → pick provider).",
+            "content": None,
+            "tool_calls": [],
+        }
