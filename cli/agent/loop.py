@@ -6,6 +6,7 @@ VISHMUX AgentLoop – main chat loop orchestrating the AI conversation.
 import os
 import sys
 import subprocess
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,7 @@ from ..providers import get_provider, BaseProvider
 from ..tools.manager import ToolManager
 from .planner import Planner
 from .summarizer import Summarizer
+from ..tools.agent_tools import TOOL_SCHEMAS, execute_tool
 
 
 class AgentLoop:
@@ -82,7 +84,17 @@ You are:
 CAPABILITIES:
 - Full conversational AI with streaming responses
 - Code generation and analysis with syntax highlighting
-- File reading and creation in the workspace
+- You can DIRECTLY read, write, and append files in the workspace using
+  tools — you don't need to print code blocks and ask the user to save
+  them. Use write_file to actually create files.
+- You can DIRECTLY run shell commands using tools (run_command for quick
+  one-shot commands, run_background_command for things that keep running
+  like a local server). The user will be asked to confirm before any
+  command runs — this is expected, not an error.
+- When asked to build something like a website or script, actually create
+  the files and run whatever is needed to get it working (e.g. starting a
+  local server), then tell the user where it is and how to access it —
+  don't just describe the steps.
 - Web search (when enabled)
 - Telegram notifications (when configured)
 - Skills system for extensible capabilities
@@ -100,15 +112,13 @@ AVAILABLE USER COMMANDS:
 - /skill <url>  → Download and load a skill
 - /web <query>  → Search the web
 - /tg setup     → Configure Telegram
-- /task add <type> "<query>" <HH:MM> → Schedule a recurring task
-- /task list    → Show your scheduled tasks
-- /task remove <id> → Delete a scheduled task
 - exit /s       → Clean exit (delete temp files)
 - exit /ss      → Save exit (keep all files)
 
 GUIDELINES:
 - Use markdown for code blocks with language tags (```python, ```bash, etc.)
-- When creating files, mention the path clearly
+- When creating files, use the write_file tool directly — mention the path clearly in your final reply
+- Prefer actually doing the task with tools over describing how the user could do it manually
 - Keep responses focused – avoid unnecessary preamble
 - If unsure about something, ask for clarification rather than guessing
 - Remember you run locally on the user's device – feel at home there"""
@@ -138,7 +148,8 @@ GUIDELINES:
             await self._chat(user_input)
 
     async def _chat(self, user_message: str) -> None:
-        """Send a message to the AI and stream the response."""
+        """Send a message to the AI. Tries tool-calling first (if the active
+        provider supports it); falls back to plain streaming otherwise."""
         if self.provider is None:
             self.display.show_error("No provider configured. Use 'switch' to select one.")
             return
@@ -152,18 +163,101 @@ GUIDELINES:
         self.display.clear_thinking()
 
         try:
-            full_response = await self.stream_handler.stream_response(
-                self.provider, self._build_messages()
-            )
+            full_response = await self._run_with_tools(user_message)
         except Exception as e:
             self.display.show_error(str(e))
             if self.messages and self.messages[-1]["role"] == "user":
                 self.messages.pop()
             return
 
-        self.messages.append({"role": "assistant", "content": full_response})
+        if full_response is None:
+            # An error was already shown (and history already rolled back)
+            # inside _run_with_tools — nothing further to do.
+            return
+
         self.summarizer.log_exchange(self.session, user_message, full_response)
         self.messages = self.summarizer.compress_history(self.messages)
+
+    async def _run_with_tools(self, user_message: str) -> Optional[str]:
+        """
+        Agentic tool-calling loop. If the active provider does not support
+        tool calling at all (fails on the very first attempt, before any
+        tool has been called), this falls back to the original plain
+        streaming chat path so behavior is unchanged for those providers
+        (e.g. Anthropic, Gemini, until they get tool support added later).
+
+        Returns the final assistant text on success, or None if an error
+        was already shown to the user and the user-message was already
+        rolled back from self.messages (caller should just return).
+        """
+        max_iterations = 8
+
+        for iteration in range(max_iterations):
+            result = await self.provider.chat_with_tools(self._build_messages(), TOOL_SCHEMAS)
+
+            if not result["success"]:
+                if iteration == 0:
+                    # Provider doesn't support tools (or failed before any
+                    # tool call happened) — fall back to plain streaming,
+                    # exactly like the original _chat() behavior.
+                    try:
+                        full_response = await self.stream_handler.stream_response(
+                            self.provider, self._build_messages()
+                        )
+                    except Exception as e:
+                        self.display.show_error(str(e))
+                        if self.messages and self.messages[-1]["role"] == "user":
+                            self.messages.pop()
+                        return None
+                    self.messages.append({"role": "assistant", "content": full_response})
+                    return full_response
+                else:
+                    self.display.show_error(result["error"])
+                    if self.messages and self.messages[-1]["role"] == "user":
+                        self.messages.pop()
+                    return None
+
+            tool_calls = result.get("tool_calls") or []
+
+            if not tool_calls:
+                final_content = result.get("content") or ""
+                self.messages.append({"role": "assistant", "content": final_content})
+                self.display.stream_start()
+                self.display.stream_chunk(final_content)
+                self.display.stream_end()
+                return final_content
+
+            assistant_msg = {
+                "role": "assistant",
+                "content": result.get("content"),
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc.get("arguments", {})),
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
+            self.messages.append(assistant_msg)
+
+            for tc in tool_calls:
+                self.display.show_tool_call(tc["name"], tc.get("arguments", {}))
+                tool_output = await execute_tool(
+                    tc["name"], tc.get("arguments", {}), self.tool_manager, self.display
+                )
+                self.messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_output,
+                })
+            # loop continues — feed tool results back to the model
+
+        self.display.show_error("Tool loop exceeded max steps — stopping.")
+        return None
 
     async def _handle_command(self, cmd: str) -> bool:
         """
@@ -266,13 +360,6 @@ GUIDELINES:
             subcmd = parts[1].strip() if len(parts) > 1 else ""
             if self.tool_manager:
                 await self.tool_manager.handle_tg_command(subcmd, self.display)
-            return True
-
-        if cmd_lower.startswith("/task"):
-            parts = cmd.split(maxsplit=1)
-            subcmd = parts[1].strip() if len(parts) > 1 else ""
-            if self.tool_manager:
-                await self.tool_manager.handle_task_command(subcmd, self.display)
             return True
 
         if cmd_lower in ("exit", "quit", "q", "exit /s", "exit /ss"):
