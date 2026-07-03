@@ -113,9 +113,6 @@ class Display:
             ("/web <query>", "Search the web"),
             ("/skill <url>", "Download and load a skill file"),
             ("/tg setup", "Set up or reconnect Telegram"),
-            ("/task add <type> \"<query>\" <HH:MM>", "Schedule a recurring task"),
-            ("/task list", "Show your scheduled tasks"),
-            ("/task remove <id>", "Delete a scheduled task"),
         ]
         for cmd, desc in rows:
             table.add_row(cmd, desc)
@@ -156,3 +153,29 @@ class Display:
     def print_markdown(self, text: str):
         """Render text as markdown."""
         console.print(Markdown(text))
+
+    def confirm_action(self, description: str) -> bool:
+        """
+        Ask the user to confirm a risky action (like running a shell command).
+        Shows `description` inside a yellow warning-styled Panel titled
+        "⚠ Confirmation needed" and prompts with Run it? [y/N].
+        Returns True only if user enters 'y' or 'yes'.
+        """
+        console.print(
+            Panel(
+                description,
+                title="⚠ Confirmation needed",
+                border_style="yellow"
+            )
+        )
+        choice = input("Run it? [y/N]: ").strip().lower()
+        return choice in ("y", "yes")
+
+    def show_tool_call(self, name: str, arguments: dict):
+        """
+        Print a single compact dim line showing a tool is being called.
+        """
+        preview = ", ".join(f"{k}={v!r}" for k, v in arguments.items())
+        if len(preview) > 80:
+            preview = preview[:77] + "..."
+        console.print(f"[dim]🔧 {name}({preview})[/dim]")
