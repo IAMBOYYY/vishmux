@@ -190,6 +190,46 @@ async def setup_supabase(config: Config) -> None:
         console.print("[dim]Skipping Supabase setup.[/dim]")
 
 
+async def setup_timezone(config: Config) -> None:
+    """Set the IANA timezone used to interpret scheduled task times."""
+    try:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    except ImportError:
+        console.print("[yellow]Timezone support needs Python 3.9+. Skipping — tasks will use UTC.[/yellow]")
+        return
+
+    try:
+        console.print(Panel(
+            "[dim]This is only used for scheduled tasks (/task add) — so '8pm' means "
+            "YOUR 8pm, not a server's. Uses IANA format, e.g. Asia/Kolkata, "
+            "America/New_York, Europe/London. If unsure, search "
+            "'IANA timezone <your city>'.[/dim]",
+            title="Timezone Setup (for scheduled tasks)",
+            border_style="blue"
+        ))
+        if not Confirm.ask("Set your timezone now?", default=True):
+            console.print("[dim]Skipped — scheduled tasks will default to UTC.[/dim]")
+            return
+
+        for _ in range(3):
+            tz_input = Prompt.ask("Your IANA timezone", default="UTC").strip()
+            try:
+                ZoneInfo(tz_input)
+                config.data["timezone"] = tz_input
+                config.save()
+                console.print(f"[green]✓ Timezone set to {tz_input}[/green]")
+                return
+            except ZoneInfoNotFoundError:
+                console.print(f"[red]'{tz_input}' isn't a recognized IANA timezone. Try again (e.g. Asia/Kolkata).[/red]")
+
+        console.print("[yellow]Too many invalid attempts — defaulting to UTC. You can fix this later by re-running setup.[/yellow]")
+        config.data["timezone"] = "UTC"
+        config.save()
+    except Exception as e:
+        console.print(f"[red]Timezone setup error: {e}[/red]")
+        console.print("[dim]Skipping — scheduled tasks will default to UTC.[/dim]")
+
+
 async def run_setup():
     # Instantiate and load existing config
     config = Config()
@@ -359,16 +399,21 @@ async def run_setup():
     ))
     want_search = Confirm.ask("Add web search capability?", default=True)
     if want_search:
-        console.print("  [1] Serper.dev  — 2,500 free searches/month → https://serper.dev")
-        console.print("  [2] Tavily      — 1,000 free searches/month → https://tavily.com")
-        console.print("  [3] Skip for now")
-        search_choice = Prompt.ask("Choose option", choices=["1","2","3"], default="1")
+        console.print("  [1] Serper.dev    — 2,500 free searches (one-time) → https://serper.dev")
+        console.print("  [2] Tavily        — 1,000 free searches/month → https://tavily.com")
+        console.print("  [3] DuckDuckGo    — no key needed, but noticeably lower-quality/less relevant results — best as a quick fallback, not for anything important")
+        console.print("  [4] Skip for now")
+        search_choice = Prompt.ask("Choose option", choices=["1","2","3","4"], default="1")
         if search_choice in ["1", "2"]:
             provider_name = "serper" if search_choice == "1" else "tavily"
             search_key = Prompt.ask(f"Enter {provider_name} API key", password=True)
             config.data["web_search_key"] = search_key
             config.data["web_search_provider"] = provider_name
             console.print(f"[green]✓ Web search enabled with {provider_name.title()}[/green]")
+        elif search_choice == "3":
+            config.data["web_search_key"] = ""
+            config.data["web_search_provider"] = "duckduckgo"
+            console.print("[yellow]✓ Web search enabled with DuckDuckGo (no key) — expect rougher results.[/yellow]")
         else:
             console.print("[dim]Skipped web search.[/dim]")
     else:
@@ -439,6 +484,11 @@ async def run_setup():
     await setup_supabase(config)
 
     # ========================================================================
+    # STEP 6.7 — Timezone Setup (Scheduled Tasks)
+    # ========================================================================
+    await setup_timezone(config)
+
+    # ========================================================================
     # STEP 7 — Summary Screen
     # ========================================================================
     console.print()
@@ -472,6 +522,13 @@ async def run_setup():
         summary_table.add_row("Web Search", f"[green]✓ {ws_provider.title()}[/green]")
     else:
         summary_table.add_row("Web Search", "[dim]✗ Not configured[/dim]")
+
+    # Timezone
+    tz = config.data.get("timezone", "")
+    if tz:
+        summary_table.add_row("Timezone", f"[green]✓ {tz}[/green]")
+    else:
+        summary_table.add_row("Timezone", "[dim]✗ Not set (defaults to UTC)[/dim]")
 
     # Telegram
     if config.data["telegram"].get("enabled"):
