@@ -28,6 +28,7 @@ class Config:
             "active_model": "",
             "telegram": {"bot_token": "", "chat_id": "", "enabled": False},
             "supabase": {"url": "", "key": "", "configured": False},
+            "timezone": "",
             "workspace_dir": "~/vishmux-workspace",
             "skills_dir": "~/.vishmux/skills",
             "sessions_dir": "~/.vishmux/sessions",
