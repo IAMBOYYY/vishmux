@@ -33,9 +33,9 @@ class TaskTool:
         return f"{url}/rest/v1/tasks"
 
     async def create_task(self, user_tg_id: str, task_type: str,
-                           task_query: str, schedule: str) -> Dict[str, Any]:
+                           task_query: str, schedule: str,
+                           timezone: str = "UTC") -> Dict[str, Any]:
         """Create a new task row."""
-        # Input validation
         if not user_tg_id:
             return {"success": False, "error": "Telegram Chat ID required. Run /tg setup first."}
         if not task_type:
@@ -50,6 +50,7 @@ class TaskTool:
             "task_type": task_type,
             "task_query": task_query,
             "schedule": schedule,
+            "timezone": timezone or "UTC",
             "is_active": True,
         }
         try:
@@ -63,7 +64,6 @@ class TaskTool:
                     error_detail = resp.text
                     return {"success": False, "error": f"Server error {resp.status_code}: {error_detail}"}
                 data = resp.json()
-                # Supabase with Prefer: return=representation returns array
                 task_row = data[0] if isinstance(data, list) else data
                 return {"success": True, "task": task_row}
         except httpx.TimeoutException:
