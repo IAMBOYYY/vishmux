@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VISHMUX WebSearchTool – query the web via Tavily, Brave, or DuckDuckGo.
+VISHMUX WebSearchTool – query the web via Serper, Tavily, Brave, or DuckDuckGo.
 """
 
 from typing import Optional
@@ -19,7 +19,7 @@ class WebSearchTool:
         """Return True if a provider is ready to use."""
         if self.provider == "duckduckgo":
             return True
-        return bool(self.api_key and self.provider in ("tavily", "brave"))
+        return bool(self.api_key and self.provider in ("tavily", "brave", "serper"))
 
     async def search(self, query: str) -> str:
         """Perform a search and return formatted results."""
@@ -27,7 +27,9 @@ class WebSearchTool:
             return "No search query provided."
 
         try:
-            if self.provider == "tavily":
+            if self.provider == "serper":
+                return await self._search_serper(query)
+            elif self.provider == "tavily":
                 return await self._search_tavily(query)
             elif self.provider == "brave":
                 return await self._search_brave(query)
@@ -37,6 +39,22 @@ class WebSearchTool:
                 return f"Unknown search provider: {self.provider}"
         except Exception as e:
             return f"Search failed: {e}. Try a different query."
+
+    async def _search_serper(self, query: str) -> str:
+        """Search using Serper.dev (Google SERP API)."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://google.serper.dev/search",
+                headers={
+                    "X-API-KEY": self.api_key,
+                    "Content-Type": "application/json",
+                },
+                json={"q": query, "num": 5},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("organic", [])
+            return self._format_results(query, results, "title", "link", "snippet")
 
     async def _search_tavily(self, query: str) -> str:
         """Search using Tavily API."""
