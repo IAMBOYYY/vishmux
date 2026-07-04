@@ -2,6 +2,7 @@
 """
 VISHMUX ToolManager – central hub for all tools, wired into the agent loop.
 """
+
 import re
 from typing import Callable, Coroutine, Any
 
@@ -36,9 +37,9 @@ class ToolManager:
         if not self.web.is_configured():
             display.show_info("Web search not configured.")
             display.show_info("Options:")
-            display.show_info("  • Tavily (1000 free/month): https://tavily.com")
-            display.show_info("  • Brave (2000 free/month): https://brave.com/search/api")
-            display.show_info("  • Or set provider to 'duckduckgo' (no key needed, limited)")
+            display.show_info("  • Serper.dev (2,500 free searches one‑time): https://serper.dev")
+            display.show_info("  • Tavily (1,000 free/month): https://tavily.com")
+            display.show_info("  • DuckDuckGo (no key needed, lower quality)")
             display.show_info("Add to config: web_search_key + web_search_provider")
             return
 
@@ -52,12 +53,27 @@ class ToolManager:
         # Show results in terminal
         display.print_markdown(results)
 
-        # Send results to AI so it can reason about them
-        context_message = (
-            f"I searched the web for: '{query}'\n\n"
-            f"Here are the results:\n\n{results}\n\n"
-            f"Please summarise the key findings."
-        )
+        # Send results to AI so it can reason about them. DuckDuckGo's
+        # free API returns noisier, less relevant results than paid
+        # providers, so ask the model to filter harder in that case.
+        if self.web.provider == "duckduckgo":
+            context_message = (
+                f"I searched DuckDuckGo for: '{query}'\n\n"
+                f"Here are the raw results — DuckDuckGo's free API is noisier "
+                f"and less targeted than Google-backed search, so some of "
+                f"these may be irrelevant or low quality:\n\n{results}\n\n"
+                f"Please identify ONLY the parts that actually answer the "
+                f"query, ignore anything off-topic or low-signal, and give a "
+                f"concise, filtered summary. If nothing here is genuinely "
+                f"useful, say so plainly instead of stretching to summarize "
+                f"irrelevant results."
+            )
+        else:
+            context_message = (
+                f"I searched the web for: '{query}'\n\n"
+                f"Here are the results:\n\n{results}\n\n"
+                f"Please summarise the key findings."
+            )
         await agent_chat_fn(context_message)
 
     async def handle_tg_command(self, subcmd: str, display) -> None:
@@ -164,7 +180,8 @@ class ToolManager:
             display.show_error("Supabase not configured. Set up in the setup wizard.")
             return
 
-        result = await self.tasks.create_task(user_tg_id, task_type, task_query, schedule)
+        user_timezone = self.config.data.get("timezone", "") or "UTC"
+        result = await self.tasks.create_task(user_tg_id, task_type, task_query, schedule, user_timezone)
         if result["success"]:
             task = result["task"]
             display.show_success(f"Task scheduled! ID: {task.get('id', 'unknown')}")
