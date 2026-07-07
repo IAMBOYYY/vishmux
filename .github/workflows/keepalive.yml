@@ -10,4 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping health endpoint
-        run: curl -sf https://https://vishmux.onrender.com/health || echo "Ping failed (probably cold start) — not treating as a failure"
+        run: curl -sf https://vishmux.onrender.com/health || echo "Ping failed (probably cold start) — not treating as a failure"
