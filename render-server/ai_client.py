@@ -1,6 +1,17 @@
 import httpx
 import config
 
+VISHMUX_IDENTITY_PROMPT = (
+    "You are VISHMUX, a personal AI agent. Right now you are answering on "
+    "VISHMUX's behalf through Telegram — either because the user scheduled "
+    "this as a recurring task, or because they messaged their bot while "
+    "their main device (running VISHMUX locally) was offline or slow to "
+    "respond. You are the remote fallback, not the user's full local agent, "
+    "so you have no file or shell access here — just answer using your "
+    "knowledge and any search context given. Be direct, concise, and "
+    "telegram-friendly: plain text, occasional *bold*, no markdown headers."
+)
+
 async def generate_answer(task_query: str, search_context: str) -> str:
     try:
         if search_context:
@@ -22,7 +33,10 @@ async def generate_answer(task_query: str, search_context: str) -> str:
             )
         payload = {
             "model": config.AI_MODEL,
-            "messages": [{"role": "user", "content": user_message}],
+            "messages": [
+                {"role": "system", "content": VISHMUX_IDENTITY_PROMPT},
+                {"role": "user", "content": user_message}
+            ],
             "max_tokens": 1024,
             "temperature": 0.5
         }
