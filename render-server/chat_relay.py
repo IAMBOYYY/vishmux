@@ -28,7 +28,7 @@ async def answer_stale_messages() -> None:
                 except Exception:
                     search_context = ""
 
-                answer = await generate_answer(text, search_context)
+                answer = await generate_answer(text, search_context) + "\n\n_(sent by Render — your device was offline)_"
                 sent = await send_message(chat_id, answer)
 
                 if sent:
