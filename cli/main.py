@@ -9,11 +9,6 @@ import os
 import sys
 from pathlib import Path
 
-# WINDOWS FIX: Windows terminals default to the legacy cp1252 codepage, which
-# cannot encode the Unicode box-drawing characters used in the VISHMUX banner
-# and rich's UI elements. This forces UTF-8 output before any rich Console is
-# created, fixing "UnicodeEncodeError: 'charmap' codec can't encode characters"
-# on Windows. No effect on Linux/macOS/Termux, where UTF-8 is already default.
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -21,7 +16,6 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Add parent directory to path so imports work from any location
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.config import Config
@@ -38,42 +32,39 @@ async def main() -> None:
     config.load()
     display = Display()
 
-    # Check if setup is needed
     if not config.is_setup_done():
         display.show_info("Welcome to VISHMUX! First-time setup required.")
         display.show_info("Run: python setup_wizard.py")
         display.show_info("Or run: vishmux setup")
         sys.exit(0)
 
-    # Initialize session management
     session = SessionManager(config)
     session.initialize()
 
-    # Show welcome banner
     display.welcome_banner()
 
-    # Show active provider
     active = config.get_active_provider()
     if active:
         display.show_provider_status(active[0], active[1])
 
-    # Load and display skills
     skills = session.load_skills()
     if skills:
         display.show_info(f"🔧 Loaded skills: {', '.join(skills)}")
 
     print()
 
-    # Show last session summary if available
     last_summary = session.get_last_session_summary()
     if last_summary:
         display.show_previous_session(last_summary)
 
-    # Build components
+    if config.data["telegram"].get("enabled") and config.is_supabase_configured():
+        from cli.tools.telegram_listener import start_telegram_listener
+        start_telegram_listener(config)
+        display.show_info("📡 Telegram listener running in background.")
+
     stream_handler = StreamHandler(display)
     exit_handler = ExitHandler(session, display)
 
-    # Create and start the agent loop
     loop = AgentLoop(
         config=config,
         session=session,
