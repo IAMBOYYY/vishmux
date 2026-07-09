@@ -57,7 +57,7 @@ async def get_claimable_messages(stale_seconds: int) -> list:
     try:
         now_utc = datetime.now(dt_timezone.utc)
         cutoff = now_utc - timedelta(seconds=stale_seconds)
-        cutoff_iso = cutoff.isoformat()
+        cutoff_iso = cutoff.isoformat().replace("+", "%2B")
         or_filter = f"or=(status.eq.pending,and(status.eq.claimed,claimed_at.lt.{cutoff_iso}))"
         url = f"{config.SUPABASE_URL}/rest/v1/incoming_messages?{or_filter}&order=created_at.asc&limit=10"
         async with httpx.AsyncClient(timeout=15.0) as client:
