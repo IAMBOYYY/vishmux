@@ -6,12 +6,15 @@ from scheduler import run_check_cycle
 from search_client import search
 from ai_client import generate_answer
 from telegram_sender import send_message
+from supabase_client import insert_incoming_message
+from chat_relay import answer_stale_messages
 
 scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(run_check_cycle, "interval", seconds=config.POLL_INTERVAL_SECONDS)
+    scheduler.add_job(answer_stale_messages, "interval", seconds=config.CHAT_POLL_INTERVAL_SECONDS)
     scheduler.start()
     print(f"[main] VISHMUX render-server started — polling every {config.POLL_INTERVAL_SECONDS}s")
     yield
@@ -41,9 +44,7 @@ async def telegram_webhook(request: Request):
             return {"ok": True}
         if text.startswith("/"):
             return {"ok": True}
-        search_context = await search(text)
-        answer = await generate_answer(text, search_context)
-        await send_message(chat_id, answer)
+        await insert_incoming_message(chat_id, text)
         return {"ok": True}
     except Exception as e:
         print(f"[webhook] Error handling update: {e}")
