@@ -108,7 +108,7 @@ def _run_loop(config: Config) -> None:
                         async for chunk in provider.chat(messages, stream=False):
                             return chunk
                         return ""
-                    answer = asyncio.run(_chat())
+                    answer = asyncio.run(_chat()) + "\n\n_(sent by your device)_"
 
                     telegram = TelegramTool(config)
                     configured_chat = config.data["telegram"]["chat_id"]
