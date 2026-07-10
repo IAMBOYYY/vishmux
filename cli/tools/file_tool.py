@@ -3,6 +3,7 @@
 VISHMUX FileTool – manage files in the workspace directory.
 """
 
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -71,6 +72,45 @@ class FileTool:
             return "\n".join(lines)
         except Exception as e:
             return f"❌ Failed to list workspace: {e}"
+
+    def create_folder(self, name: str) -> str:
+        """Create a folder in the workspace."""
+        try:
+            folder_path = self._resolve_path(name)
+            folder_path.mkdir(parents=True, exist_ok=True)
+            return f"✅ Created folder: {folder_path}"
+        except Exception as e:
+            return f"❌ Failed to create folder: {e}"
+
+    def move_to_folder(self, files: list, folder: str) -> str:
+        """Move existing workspace files into a project folder."""
+        if not files:
+            return "Nothing to move."
+        try:
+            dest_dir = self._resolve_path(folder)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            moved = []
+            failed = []
+            for f in files:
+                src = self._resolve_path(f)
+                if not src.exists():
+                    failed.append(f"{f} (not found)")
+                    continue
+                try:
+                    shutil.move(str(src), str(dest_dir / src.name))
+                    moved.append(str(dest_dir / src.name))
+                except Exception as e:
+                    failed.append(f"{f} ({e})")
+
+            msg = ""
+            if moved:
+                msg += f"Moved {len(moved)} file(s) to {dest_dir}:\n" + "\n".join(f"  {m}" for m in moved)
+            if failed:
+                msg += "\nFailed:\n" + "\n".join(f"  {f}" for f in failed)
+            return msg.strip()
+        except Exception as e:
+            return f"❌ Failed to move files: {e}"
 
     def _resolve_path(self, path: str) -> Path:
         """Resolve a user-supplied path. If it's a simple filename, put it in workspace."""
