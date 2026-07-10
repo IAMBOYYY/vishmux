@@ -82,6 +82,45 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "create_project_folder",
+            "description": "Create a project folder inside the workspace. Call this FIRST before writing any files for a multi-file project (website, app, script collection). Then write files using paths like \"<folder_name>/index.html\".",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Short descriptive folder name for the project, e.g. \"portfolio-site\""
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_to_project_folder",
+            "description": "Move existing files that are loose in the workspace into a project folder. Useful for organizing files you already created outside a folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of filenames (or relative paths) to move"
+                    },
+                    "folder": {
+                        "type": "string",
+                        "description": "Destination folder name"
+                    }
+                },
+                "required": ["files", "folder"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_command",
             "description": "Run a shell command and wait for it to finish, max 60 seconds, inside the workspace folder. For quick one-shot commands (installing a package, making a directory, running a build step). Do NOT use this for commands that run forever like starting a server — use run_background_command for those instead.",
             "parameters": {
@@ -138,7 +177,7 @@ def _run_sync(command: str, cwd: Path, timeout: int = 60) -> str:
 
         if not stdout.strip() and not stderr.strip():
             return f"Command finished (exit code {result.returncode}), no output."
-        
+
         lines = []
         if truncated_stdout:
             lines.append(f"stdout:\n{truncated_stdout}")
@@ -201,6 +240,13 @@ async def execute_tool(name: str, arguments: dict, tool_manager, display) -> str
             )
         elif name == "list_files":
             return tool_manager.files.list_workspace()
+        elif name == "create_project_folder":
+            return tool_manager.files.create_folder(arguments.get("name", ""))
+        elif name == "move_to_project_folder":
+            return tool_manager.files.move_to_folder(
+                arguments.get("files", []),
+                arguments.get("folder", "")
+            )
         elif name in ("run_command", "run_background_command"):
             command = arguments.get("command", "").strip()
             if not command:
