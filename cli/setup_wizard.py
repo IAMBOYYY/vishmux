@@ -29,6 +29,7 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 from config import Config
+from tools.render_sync import sync_ai_config_to_render
 
 console = Console()
 
@@ -555,6 +556,7 @@ async def run_setup():
     # STEP 8 — Save and Exit
     # ========================================================================
     config.save()
+    await sync_ai_config_to_render(config)
     console.print()
     console.print("[bold green]🚀 Setup complete! Run 'vishmux' to start chatting![/bold green]")
     console.print("[dim]To reconfigure anytime, run: vishmux setup[/dim]")
