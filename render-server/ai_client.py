@@ -1,5 +1,5 @@
 import httpx
-import config
+from ai_settings import get_ai_settings
 
 VISHMUX_IDENTITY_PROMPT = (
     "You are VISHMUX, a personal AI agent. Right now you are answering on "
@@ -14,6 +14,7 @@ VISHMUX_IDENTITY_PROMPT = (
 
 async def generate_answer(task_query: str, search_context: str) -> str:
     try:
+        settings = await get_ai_settings()
         if search_context:
             user_message = (
                 f'The user asked/scheduled this: "{task_query}"\n\n'
@@ -32,7 +33,7 @@ async def generate_answer(task_query: str, search_context: str) -> str:
                 f"message, no markdown headers."
             )
         payload = {
-            "model": config.AI_MODEL,
+            "model": settings["model"],
             "messages": [
                 {"role": "system", "content": VISHMUX_IDENTITY_PROMPT},
                 {"role": "user", "content": user_message}
@@ -41,12 +42,12 @@ async def generate_answer(task_query: str, search_context: str) -> str:
             "temperature": 0.5
         }
         headers = {
-            "Authorization": f"Bearer {config.AI_API_KEY}",
+            "Authorization": f"Bearer {settings['api_key']}",
             "Content-Type": "application/json"
         }
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
-                f"{config.AI_BASE_URL}/chat/completions",
+                f"{settings['base_url']}/chat/completions",
                 headers=headers,
                 json=payload
             )
