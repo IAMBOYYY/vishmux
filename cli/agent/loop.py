@@ -20,6 +20,7 @@ from ..tools.manager import ToolManager
 from .planner import Planner
 from .summarizer import Summarizer
 from ..tools.agent_tools import TOOL_SCHEMAS, execute_tool
+from ..tools.render_sync import sync_ai_config_to_render
 
 
 class AgentLoop:
@@ -99,6 +100,22 @@ CAPABILITIES:
 - Telegram notifications (when configured)
 - Skills system for extensible capabilities
 
+PROJECT ORGANIZATION:
+- Any time you're building something with more than one file (a website,
+  a small app, a multi-file script), ALWAYS call create_project_folder
+  first with a short descriptive name, then write every file for that
+  project inside it (e.g. write_file with path "my-site/index.html") —
+  never leave a multi-file build loose in the workspace root. This lets
+  the user move, zip, or push that one folder to GitHub afterward.
+- If the user asks you to tidy up files you already created loose in the
+  workspace, use move_to_project_folder to organize them instead of
+  recreating them from scratch.
+- For websites specifically: always include real CSS (inline <style> or
+  a linked stylesheet), sensible layout/spacing/typography, and genuine
+  content — not bare unstyled HTML or placeholder Lorem-ipsum-only pages
+  unless the user explicitly asks for a bare-bones skeleton. Treat every
+  site as something presentable, not a rough draft.
+
 SESSION CONTEXT:
 {session_ctx}
 
@@ -135,7 +152,7 @@ GUIDELINES:
             try:
                 user_input = self.display.user_prompt()
             except (KeyboardInterrupt, EOFError):
-                self.display.show_info("\nUse 'exit /s' for clean exit.")
+                self.display.show_info("\nUse 'exit /s' next time for a clean exit.")
                 continue
 
             if not user_input:
@@ -409,6 +426,7 @@ GUIDELINES:
 
         try:
             self.config.set_active_provider(provider_name, model)
+            await sync_ai_config_to_render(self.config)
             api_key = self.config.data["providers"][provider_name]["api_key"]
             self.provider = get_provider(provider_name, api_key, model)
             self._build_system_prompt()
