@@ -19,7 +19,7 @@ from ..providers import get_provider, BaseProvider
 from ..tools.manager import ToolManager
 from .planner import Planner
 from .summarizer import Summarizer
-from ..tools.agent_tools import TOOL_SCHEMAS, execute_tool
+from ..tools.agent_tools import TOOL_SCHEMAS, execute_tool, ADB_TOOL_SCHEMAS
 from ..tools.render_sync import sync_ai_config_to_render
 
 
@@ -74,6 +74,13 @@ class AgentLoop:
     def _build_system_prompt(self) -> None:
         """Construct the system prompt that defines VISHMUX's behavior."""
         session_ctx = self.session.get_session_context()
+        adb_note = ""
+        if self.config.get_adb_control_enabled():
+            adb_note = (
+                "\n\nYou also have ADB control of the user's Android device: "
+                "tap, swipe, type, open apps/URLs, screenshot, read the screen UI. "
+                "Use these tools to interact with the phone directly when asked."
+            )
         self.system_prompt = f"""You are VISHMUX, a powerful local AI agent running directly on this device.
 
 You are:
@@ -98,7 +105,7 @@ CAPABILITIES:
   don't just describe the steps.
 - Web search (when enabled)
 - Telegram notifications (when configured)
-- Skills system for extensible capabilities
+- Skills system for extensible capabilities{adb_note}
 
 PROJECT ORGANIZATION:
 - Any time you're building something with more than one file (a website,
@@ -131,6 +138,7 @@ AVAILABLE USER COMMANDS:
 - /tg setup     → Configure Telegram
 - /tg provider  → Choose a separate (fast) provider for Telegram/scheduled replies
 - /tg mode      → Choose hybrid, Termux-only, or Render-only Telegram replies
+- /phone adb    → Toggle ADB phone control (when enabled, AI can control your Android device)
 - exit /s       → Clean exit (delete temp files)
 - exit /ss      → Save exit (keep all files)
 
@@ -209,10 +217,15 @@ GUIDELINES:
         was already shown to the user and the user-message was already
         rolled back from self.messages (caller should just return).
         """
-        max_iterations = 8
+        max_iterations = 12 if self.config.get_adb_control_enabled() else 8
+
+        # Combine base tools with ADB tools if enabled
+        combined_tools = list(TOOL_SCHEMAS)
+        if self.config.get_adb_control_enabled():
+            combined_tools.extend(ADB_TOOL_SCHEMAS)
 
         for iteration in range(max_iterations):
-            result = await self.provider.chat_with_tools(self._build_messages(), TOOL_SCHEMAS)
+            result = await self.provider.chat_with_tools(self._build_messages(), combined_tools)
 
             if not result["success"]:
                 if iteration == 0:
@@ -385,6 +398,13 @@ GUIDELINES:
                 await self.tool_manager.handle_tg_command(subcmd, self.display)
             return True
 
+        if cmd_lower.startswith("/phone"):
+            parts = cmd.split(maxsplit=1)
+            subcmd = parts[1].strip() if len(parts) > 1 else ""
+            if subcmd.lower() == "adb":
+                await self._toggle_adb()
+            return True
+
         if cmd_lower in ("exit", "quit", "q", "exit /s", "exit /ss"):
             should_exit = self.exit_handler.handle_exit(cmd)
             if should_exit:
@@ -499,7 +519,7 @@ GUIDELINES:
         current = self.config.get_telegram_mode()
         options = [
             ("hybrid", "Hybrid — Termux answers if running, Render falls back if not (default)"),
-            ("termux_only", "Termux only — if your device is offline, you're told so instead of Render answering"),
+            ("termux_only", "Termux only — only your device ever answers, however long it takes"),
             ("render_only", "Render only — the cloud server always answers, regardless of Termux"),
         ]
         self.display.show_info("Telegram reply mode:")
@@ -526,3 +546,24 @@ GUIDELINES:
             self.display.show_success(f"Telegram reply mode set to: {mode_name}")
         except Exception as e:
             self.display.show_error(f"Failed to set Telegram mode: {e}")
+
+    async def _toggle_adb(self) -> None:
+        """Toggle ADB phone control. Warns about risks on first enable."""
+        current = self.config.get_adb_control_enabled()
+        if current:
+            self.config.set_adb_control_enabled(False)
+            self.display.show_success("ADB phone control disabled.")
+            return
+        # First-time enabling requires explicit confirmation
+        self.display.show_info(
+            "⚠️  Enabling ADB phone control allows VISHMUX (and anyone who can message "
+            "your Telegram bot, if configured) to tap, swipe, type, open apps, and control "
+            "your phone screen directly via ADB. This includes access to sensitive apps "
+            "like Telegram, banking, and messaging apps."
+        )
+        confirm = input("Enable ADB phone control? [y/N]: ").strip().lower()
+        if confirm == "y":
+            self.config.set_adb_control_enabled(True)
+            self.display.show_success("ADB phone control enabled. VISHMUX can now interact with your device.")
+        else:
+            self.display.show_info("ADB phone control remains off.")
