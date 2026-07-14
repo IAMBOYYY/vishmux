@@ -495,9 +495,9 @@ async def run_setup():
     if config.data["telegram"]["enabled"] and config.is_supabase_configured():
         console.print(Panel(
             "[dim]Choose how Telegram messages get answered:\n"
-            "  1. Hybrid (recommended) — Termux answers if it's running, Render answers if it's not\n"
-            "  2. Termux only — only your device answers; if it's offline, you're just told so\n"
-            "  3. Render only — the cloud server always answers, regardless of Termux[/dim]",
+            "  1. Hybrid (recommended) — Termux answers if running, Render falls back if not\n"
+            "  2. Termux only — Only your device ever answers, however long it takes — no Render fallback\n"
+            "  3. Render only — The cloud server always answers immediately, regardless of Termux[/dim]",
             title="Telegram Reply Mode",
             border_style="blue"
         ))
