@@ -28,6 +28,7 @@ class Config:
             "active_model": "",
             "telegram_provider": {"name": "", "model": ""},
             "telegram_mode": "hybrid",
+            "adb_control_enabled": False,
             "telegram": {"bot_token": "", "chat_id": "", "enabled": False},
             "supabase": {"url": "", "key": "", "configured": False},
             "timezone": "",
@@ -100,6 +101,15 @@ class Config:
         if mode in ("hybrid", "termux_only", "render_only"):
             self.data["telegram_mode"] = mode
             self.save()
+
+    def get_adb_control_enabled(self) -> bool:
+        """Return True if ADB phone control is enabled."""
+        return bool(self.data.get("adb_control_enabled", False))
+
+    def set_adb_control_enabled(self, enabled: bool) -> None:
+        """Enable or disable ADB phone control."""
+        self.data["adb_control_enabled"] = enabled
+        self.save()
 
     def is_setup_done(self) -> bool:
         """True if at least one provider has an API key."""
