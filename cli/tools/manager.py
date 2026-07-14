@@ -10,6 +10,7 @@ from .web_search import WebSearchTool
 from .file_tool import FileTool
 from .telegram_tool import TelegramTool
 from .task_tool import TaskTool
+from .adb_tool import ADBTool
 
 
 class ToolManager:
@@ -21,6 +22,7 @@ class ToolManager:
         self.files = FileTool(config)
         self.telegram = TelegramTool(config)
         self.tasks = TaskTool(config)
+        self.adb = ADBTool(config)
 
     async def handle_web_command(
         self,
@@ -136,7 +138,6 @@ class ToolManager:
             if not tasks:
                 display.show_info("No scheduled tasks yet.")
                 return
-            # Format table
             lines = ["| ID | Type | Query | Schedule | Active |",
                      "|----|------|-------|----------|--------|"]
             for t in tasks:
