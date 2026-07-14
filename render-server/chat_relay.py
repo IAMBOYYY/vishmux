@@ -9,13 +9,20 @@ async def answer_stale_messages() -> None:
     """
     Fallback job: every CHAT_POLL_INTERVAL_SECONDS, check for messages
     that have been pending too long (or stuck claimed), then claim and answer.
-    Adjusts timing and message content based on the Telegram reply mode.
+    Respects the Telegram reply mode from ai_config:
+    - hybrid: Termux first, Render falls back after a delay
+    - render_only: Render answers immediately without waiting
+    - termux_only: Render never answers — Termux is the sole responder
     """
     try:
         settings = await get_ai_settings()
         mode = settings.get("mode", "hybrid")
-        stale_seconds = 2 if mode == "render_only" else config.CHAT_FALLBACK_DELAY_SECONDS
 
+        # termux_only: Render must never claim or reply — Termux answers, however long it takes.
+        if mode == "termux_only":
+            return
+
+        stale_seconds = 2 if mode == "render_only" else config.CHAT_FALLBACK_DELAY_SECONDS
         rows = await get_claimable_messages(stale_seconds)
         for row in rows:
             try:
@@ -27,25 +34,16 @@ async def answer_stale_messages() -> None:
 
                 claimed = await try_claim_message(msg_id, "render", expected_status)
                 if not claimed:
-                    # Someone else got it first (unlikely but safe)
                     continue
 
-                if mode == "termux_only":
-                    # User chose Termux-only mode — don't spend an AI call,
-                    # just tell them their device is offline.
-                    answer = (
-                        "📴 Your device is currently offline, so I can't answer that right now. "
-                        "Try again once VISHMUX is running in Termux."
-                    )
-                else:
-                    try:
-                        search_context = await search(text)
-                    except Exception:
-                        search_context = ""
-                    answer = await generate_answer(text, search_context)
+                # Search + AI answer (render_only / hybrid paths)
+                try:
+                    search_context = await search(text)
+                except Exception:
+                    search_context = ""
+                answer = await generate_answer(text, search_context)
 
                 sent = await send_message(chat_id, answer)
-
                 if sent:
                     await delete_message(msg_id)
                 else:
