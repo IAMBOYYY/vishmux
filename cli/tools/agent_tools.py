@@ -154,6 +154,143 @@ TOOL_SCHEMAS = [
     }
 ]
 
+ADB_TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_tap",
+            "description": "Tap on screen coordinates (x, y).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"}
+                },
+                "required": ["x", "y"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_swipe",
+            "description": "Swipe from (x1,y1) to (x2,y2) over duration_ms milliseconds.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x1": {"type": "integer"},
+                    "y1": {"type": "integer"},
+                    "x2": {"type": "integer"},
+                    "y2": {"type": "integer"},
+                    "duration_ms": {"type": "integer", "default": 300}
+                },
+                "required": ["x1","y1","x2","y2"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_type_text",
+            "description": "Type text into the currently focused field.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_press_key",
+            "description": "Press a key identified by its Android keycode (e.g. KEYCODE_HOME).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keycode": {"type": "string"}
+                },
+                "required": ["keycode"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_open_app",
+            "description": "Open an app by its package name (e.g. com.whatsapp).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "package": {"type": "string"}
+                },
+                "required": ["package"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_open_url",
+            "description": "Open a URL in the default browser.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_list_apps",
+            "description": "List installed app packages, optionally filtered by a query string.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "default": ""}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_current_app",
+            "description": "Get the currently focused app or window information.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_get_battery",
+            "description": "Get the device battery level and charging status.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_screenshot",
+            "description": "Take a screenshot and save it locally.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adb_dump_ui",
+            "description": "Read the current screen's interactive elements (text, ids, bounds). Use this to understand what's on screen before tapping or typing.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    }
+]
 
 def _run_sync(command: str, cwd: Path, timeout: int = 60) -> str:
     """
@@ -261,6 +398,33 @@ async def execute_tool(name: str, arguments: dict, tool_manager, display) -> str
                 return _run_sync(command, cwd)
             else:
                 return _run_background(command, cwd)
+        # ADB tools
+        elif name == "adb_tap":
+            return tool_manager.adb.tap(arguments.get("x", 0), arguments.get("y", 0))
+        elif name == "adb_swipe":
+            return tool_manager.adb.swipe(
+                arguments.get("x1", 0), arguments.get("y1", 0),
+                arguments.get("x2", 0), arguments.get("y2", 0),
+                arguments.get("duration_ms", 300)
+            )
+        elif name == "adb_type_text":
+            return tool_manager.adb.type_text(arguments.get("text", ""))
+        elif name == "adb_press_key":
+            return tool_manager.adb.press_key(arguments.get("keycode", ""))
+        elif name == "adb_open_app":
+            return tool_manager.adb.open_app(arguments.get("package", ""))
+        elif name == "adb_open_url":
+            return tool_manager.adb.open_url(arguments.get("url", ""))
+        elif name == "adb_list_apps":
+            return tool_manager.adb.list_apps(arguments.get("query", ""))
+        elif name == "adb_current_app":
+            return tool_manager.adb.current_app()
+        elif name == "adb_get_battery":
+            return tool_manager.adb.get_battery()
+        elif name == "adb_screenshot":
+            return tool_manager.adb.screenshot()
+        elif name == "adb_dump_ui":
+            return tool_manager.adb.dump_ui()
         else:
             return f"❌ Unknown tool: {name}"
     except Exception as e:
