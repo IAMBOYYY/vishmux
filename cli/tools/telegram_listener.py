@@ -8,6 +8,8 @@ import time
 import threading
 import asyncio
 import json
+import shutil
+import subprocess
 from datetime import datetime, timezone as dt_timezone
 
 import httpx
@@ -16,7 +18,7 @@ from ..config import Config
 from ..providers import get_provider
 from .web_search import WebSearchTool
 from .telegram_tool import TelegramTool
-from .agent_tools import TOOL_SCHEMAS, execute_tool
+from .agent_tools import TOOL_SCHEMAS, execute_tool, ADB_TOOL_SCHEMAS
 from .manager import ToolManager
 
 LOCAL_IDENTITY_PROMPT = (
@@ -25,11 +27,6 @@ LOCAL_IDENTITY_PROMPT = (
     "local agent, not a remote fallback. Be direct, concise, telegram-friendly: plain text, "
     "occasional *bold*, no markdown headers."
 )
-
-TELEGRAM_SAFE_TOOLS = [
-    t for t in TOOL_SCHEMAS
-    if t["function"]["name"] not in ("run_command", "run_background_command")
-]
 
 LOCAL_IDENTITY_PROMPT_WITH_TOOLS = (
     "You are VISHMUX, answering a Telegram message directly from the user's own device, "
@@ -51,14 +48,45 @@ class _NoPromptDisplay:
     def show_tool_call(self, name: str, arguments: dict) -> None:
         pass
 
+# Thread‑safe diagnostics
+_last_poll_at = None
+_poll_count = 0
+
+def get_listener_status() -> dict:
+    """Return a snapshot of the background listener state.
+    Safe to call from any thread."""
+    return {
+        "last_poll_at": _last_poll_at.isoformat() if _last_poll_at else None,
+        "poll_count": _poll_count,
+        "mode": None,  # will be filled by the loop after first check
+    }
+
+def _try_acquire_wakelock() -> None:
+    """Best-effort: keep the CPU awake on Termux so the poll loop isn't starved.
+    No-op / silent failure on non‑Termux platforms."""
+    try:
+        if shutil.which("termux-wake-lock"):
+            subprocess.run(["termux-wake-lock"], timeout=5, capture_output=True)
+    except Exception:
+        pass
 
 def start_telegram_listener(config: Config) -> None:
     """Starts the background listener thread. Returns immediately (non-blocking)."""
+    _try_acquire_wakelock()
     t = threading.Thread(target=_run_loop, args=(config,), daemon=True)
     t.start()
 
+def _compute_safe_tools(config: Config) -> list:
+    """Build the tool list available to the Telegram listener,
+    including ADB tools when the user has enabled phone control."""
+    base = [t for t in TOOL_SCHEMAS if t["function"]["name"] not in ("run_command", "run_background_command")]
+    if config.get_adb_control_enabled():
+        base.extend(ADB_TOOL_SCHEMAS)
+    return base
+
 def _run_loop(config: Config) -> None:
     """Forever loop polling Supabase for pending incoming messages."""
+    global _last_poll_at, _poll_count
     supabase_url = config.data["supabase"]["url"].rstrip("/")
     supabase_key = config.data["supabase"]["key"]
     headers = {
@@ -71,8 +99,12 @@ def _run_loop(config: Config) -> None:
 
     while True:
         try:
-            # If mode is render_only, skip all polling — Render always answers on its own.
             mode = config.get_telegram_mode()
+            _last_poll_at = datetime.now(dt_timezone.utc)
+            _poll_count += 1
+            if _poll_count % 20 == 0:
+                print(f"[telegram_listener] alive — {_poll_count} polls, mode={mode}")
+
             if mode == "render_only":
                 time.sleep(3)
                 continue
@@ -89,7 +121,6 @@ def _run_loop(config: Config) -> None:
                 chat_id = row["chat_id"]
                 text = row["text"]
 
-                # Only claim if we have a Telegram provider configured (falls back to active_provider if none set explicitly)
                 active = config.get_telegram_provider()
                 if not active:
                     continue
@@ -109,10 +140,8 @@ def _run_loop(config: Config) -> None:
                     continue
                 claimed_data = claim_resp.json()
                 if not isinstance(claimed_data, list) or len(claimed_data) == 0:
-                    # Already claimed by Render or another instance
                     continue
 
-                # Generate answer
                 try:
                     # Search if configured
                     search_context = ""
@@ -123,7 +152,6 @@ def _run_loop(config: Config) -> None:
                         except Exception:
                             pass
 
-                    # Prepare messages
                     if search_context:
                         user_msg = (
                             f'The user asked: "{text}"\n\n'
@@ -142,10 +170,11 @@ def _run_loop(config: Config) -> None:
                         {"role": "user", "content": user_msg}
                     ]
 
-                    # Use local provider
                     provider_name, model = active
                     api_key = config.data["providers"][provider_name]["api_key"]
                     provider = get_provider(provider_name, api_key, model)
+
+                    safe_tools = _compute_safe_tools(config)
 
                     async def _generate_with_tools():
                         tool_manager = ToolManager(config)
@@ -154,12 +183,10 @@ def _run_loop(config: Config) -> None:
                         max_iterations = 6
 
                         for iteration in range(max_iterations):
-                            result = await provider.chat_with_tools(working_messages, TELEGRAM_SAFE_TOOLS)
+                            result = await provider.chat_with_tools(working_messages, safe_tools)
 
                             if not result["success"]:
                                 if iteration == 0:
-                                    # Provider doesn't support tools at all (Anthropic/Gemini) —
-                                    # fall back to plain chat, exactly like before this change.
                                     async for chunk in provider.chat(messages, stream=False):
                                         return chunk
                                     return ""
@@ -200,21 +227,17 @@ def _run_loop(config: Config) -> None:
 
                     answer = asyncio.run(_generate_with_tools())
 
-                    # Send via Telegram
                     telegram = TelegramTool(config)
-                    # Confirm chat_id consistency (log warning if mismatch, but still send to configured)
                     configured_chat = config.data["telegram"]["chat_id"]
                     if chat_id != configured_chat:
                         print(f"[telegram_listener] Warning: incoming chat_id {chat_id} differs from configured {configured_chat}")
                     sent = asyncio.run(telegram.send_message(answer))
                     if sent:
-                        # Delete message from Supabase
                         client.delete(
                             f"{supabase_url}/rest/v1/incoming_messages?id=eq.{msg_id}",
                             headers=headers
                         )
                     else:
-                        # Revert to pending
                         client.patch(
                             f"{supabase_url}/rest/v1/incoming_messages?id=eq.{msg_id}",
                             headers=headers,
@@ -223,7 +246,6 @@ def _run_loop(config: Config) -> None:
                         print(f"[telegram_listener] Failed to send answer for msg {msg_id}, reverted to pending")
                 except Exception as e:
                     print(f"[telegram_listener] Error processing msg {msg_id}: {e}")
-                    # Revert to pending so Render can pick it up
                     try:
                         client.patch(
                             f"{supabase_url}/rest/v1/incoming_messages?id=eq.{msg_id}",
